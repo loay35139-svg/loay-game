@@ -1,0 +1,618 @@
+import array
+import math
+import random
+import tkinter as tk
+import pygame
+
+# ==================== 1. تهيئة الصوت والموسيقى ====================
+pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+
+sound_volume = 0.5
+is_muted = False
+
+
+def generate_tone(frequency, duration=0.2, volume=0.3):
+    sample_rate = 44100
+    n_samples = int(sample_rate * duration)
+    buf = array.array("h")
+    for i in range(n_samples):
+        t = float(i) / sample_rate
+        val = int(volume * 32767.0 * math.sin(2.0 * math.pi * frequency * t))
+        buf.append(val)
+        buf.append(val)
+    return pygame.mixer.Sound(buffer=buf)
+
+
+def generate_background_music():
+    sample_rate = 44100
+    notes = [
+        261.63,
+        329.63,
+        392.00,
+        523.25,
+        392.00,
+        329.63,
+        293.66,
+        349.23,
+        440.00,
+        587.33,
+    ]
+    duration_per_note = 0.22
+    buf = array.array("h")
+
+    for freq in notes:
+        n_samples = int(sample_rate * duration_per_note)
+        for i in range(n_samples):
+            t = float(i) / sample_rate
+            val = int(0.05 * 32767.0 * math.sin(2.0 * math.pi * freq * t))
+            buf.append(val)
+            buf.append(val)
+
+    return pygame.mixer.Sound(buffer=buf)
+
+
+sound_correct = generate_tone(523.25, 0.25)
+sound_wrong = generate_tone(220.00, 0.3)
+sound_bg_song = generate_background_music()
+
+channel_bg = pygame.mixer.Channel(0)
+channel_bg.play(sound_bg_song, loops=-1)
+
+
+def play_feedback(is_correct):
+    if is_muted:
+        return
+    if is_correct:
+        sound_correct.play()
+    else:
+        sound_wrong.play()
+
+
+# ==================== 2. النصوص وقاعدة البيانات المترجمة ====================
+TRANSLATIONS = {
+    "ar": {
+        "title": "مسابقة الأسئلة العامة 🧠",
+        "lvl_1": "المستوى 1: سهل (100 سؤال)",
+        "lvl_2": "المستوى 2: متوسط (150 سؤال)",
+        "lvl_3": "المستوى 3: صعب (200 سؤال)",
+        "lvl_4": "المستوى 4: مستحيل (250 سؤال)",
+        "progress": "التقدم: {} / {}   |   النقاط: {}",
+        "coins": "🪙 العملات: {}",
+        "correct": "إجابة صحيحة (+10 عملات) ✅",
+        "wrong": "إجابة خاطئة ❌ (الصحيحة: {})",
+        "win": "🎉 تهانينا! أنهيت جميع المستويات! النقاط: {}",
+        "settings": "⚙️ الإعدادات",
+        "music": "الصوت والإنذارات:",
+        "mute": "كتم الصوت",
+        "unmute": "تشغيل الصوت",
+        "volume": "مستوى الصوت:",
+        "lang": "اللغة:",
+        "helper_5050": "💡 حذف إجابتين (150 عملة)",
+        "no_coins": "❌ ليس لديك عملات كافية (تحتاج 150)",
+        "back": "⬅️ العودة للعبة",
+        "q_prefix": "س",
+    },
+    "en": {
+        "title": "General Quiz Game 🧠",
+        "lvl_1": "Level 1: Easy (100 Qs)",
+        "lvl_2": "Level 2: Medium (150 Qs)",
+        "lvl_3": "Level 3: Hard (200 Qs)",
+        "lvl_4": "Level 4: Impossible (250 Qs)",
+        "progress": "Progress: {} / {}   |   Score: {}",
+        "coins": "🪙 Coins: {}",
+        "correct": "Correct Answer (+10 Coins) ✅",
+        "wrong": "Wrong Answer ❌ (Correct: {})",
+        "win": "🎉 Congratulations! Finished all levels! Score: {}",
+        "settings": "⚙️ Settings",
+        "music": "Audio & Sound:",
+        "mute": "Mute",
+        "unmute": "Unmute",
+        "volume": "Volume:",
+        "lang": "Language:",
+        "helper_5050": "💡 Remove 2 Options (150 Coins)",
+        "no_coins": "❌ Not enough coins (Need 150)",
+        "back": "⬅️ Back to Game",
+        "q_prefix": "Q",
+    },
+    "fr": {
+        "title": "Jeu de Quiz Général 🧠",
+        "lvl_1": "Niveau 1: Facile (100 Qs)",
+        "lvl_2": "Niveau 2: Moyen (150 Qs)",
+        "lvl_3": "Niveau 3: Difficile (200 Qs)",
+        "lvl_4": "Niveau 4: Impossible (250 Qs)",
+        "progress": "Progrès: {} / {}   |   Score: {}",
+        "coins": "🪙 Pièces: {}",
+        "correct": "Bonne Réponse (+10 Pièces) ✅",
+        "wrong": "Mauvaise Réponse ❌ (Correcte: {})",
+        "win": "🎉 Félicitations! Niveaux terminés! Score: {}",
+        "settings": "⚙️ Paramètres",
+        "music": "Musique et Son:",
+        "mute": "Muet",
+        "unmute": "Activer le son",
+        "volume": "Volume:",
+        "lang": "Langue:",
+        "helper_5050": "💡 Supprimer 2 (150 Pièces)",
+        "no_coins": "❌ Pas assez de pièces (150 requises)",
+        "back": "⬅️ Retour au jeu",
+        "q_prefix": "Q",
+    },
+}
+
+RAW_QUESTIONS_DB = {
+    "ar": {
+        1: [
+            ("ما هي عاصمة فرنسا؟", "باريس", ["لندن", "مدريد", "روما"]),
+            ("كم عدد أيام السنة الكبيسة؟", "366", ["365", "360", "350"]),
+            ("ما هو الحيوان الملقب بسفينة الصحراء؟", "الجمل", ["الحصان", "الفيل", "الأسد"]),
+            ("ما هي عاصمة مصر؟", "القاهرة", ["الإسكندرية", "أسوان", "الجيزة"]),
+            ("كم عدد ألوان قوس قزح؟", "7", ["5", "6", "8"]),
+        ],
+        2: [
+            ("ما هو الكوكب الأحمر؟", "المريخ", ["المشتري", "الزهرة", "زحل"]),
+            ("ما هو أسرع حيوان بري في العالم؟", "الفهد", ["الأسد", "الغزال", "الحصان"]),
+            ("ما هي عاصمة اليابان؟", "طوكيو", ["أوساكا", "كيوتو", "سول"]),
+            ("كم عدد أضلاع المثلث؟", "3", ["4", "5", "6"]),
+            ("ما هو أكبر محيط في العالم؟", "المحيط الهادئ", ["المحيط الأطلسي", "المحيط الهندي", "المحيط المتجمد"]),
+        ],
+        3: [
+            ("أطول سلسلة جبال في العالم؟", "الأنديز", ["الهيمالايا", "الألب", "أطلس"]),
+            ("ما هي أكبر قارة في العالم من حيث المساحة؟", "آسيا", ["إفريقيا", "أوروبا", "أمريكا الشمالية"]),
+            ("ما هو أطول نهر في العالم؟", "نهر النيل", ["نهر الأمازون", "نهر الميسيسيبي", "نهر اليانغتسي"]),
+            ("ما هو العنصر الكيميائي الذي رمزه O؟", "الأكسجين", ["الذهب", "الحديد", "الفضة"]),
+            ("في أي عام انتهت الحرب العالمية الثانية؟", "1945", ["1939", "1918", "1950"]),
+        ],
+        4: [
+            ("أصغر دولة في العالم من حيث المساحة؟", "الفاتيكان", ["موناكو", "سان مارينو", "أندورا"]),
+            ("ما هي الدولة الأكثر إنتاجاً للقهوة في العالم؟", "البرازيل", ["كولومبيا", "إثيوبيا", "فيتنام"]),
+            ("كم عدد القلوب لدى الأخطبوط؟", "3", ["1", "2", "4"]),
+            ("ما هي الغازات الأكثر وجوداً في الغلاف الجوي؟", "النيتروجين", ["الأكسجين", "ثاني أكسيد الكربون", "الهيدروجين"]),
+            ("من هو مخترع المصباح الكهربائي؟", "توماس إديسون", ["نيقولا تسلا", "أينشتاين", "ألكسندر غراهام بيل"]),
+        ],
+    },
+    "en": {
+        1: [
+            ("What is the capital of France?", "Paris", ["London", "Madrid", "Rome"]),
+            ("How many days in a leap year?", "366", ["365", "360", "350"]),
+            ("Which animal is known as the ship of the desert?", "Camel", ["Horse", "Elephant", "Lion"]),
+            ("What is the capital of Egypt?", "Cairo", ["Alexandria", "Aswan", "Giza"]),
+            ("How many colors are in a rainbow?", "7", ["5", "6", "8"]),
+        ],
+        2: [
+            ("Which planet is known as the Red Planet?", "Mars", ["Jupiter", "Venus", "Saturn"]),
+            ("What is the fastest land animal?", "Cheetah", ["Lion", "Gazelle", "Horse"]),
+            ("What is the capital of Japan?", "Tokyo", ["Osaka", "Kyoto", "Seoul"]),
+            ("How many sides does a triangle have?", "3", ["4", "5", "6"]),
+            ("What is the largest ocean in the world?", "Pacific Ocean", ["Atlantic Ocean", "Indian Ocean", "Arctic Ocean"]),
+        ],
+        3: [
+            ("What is the longest mountain range in the world?", "Andes", ["Himalayas", "Alps", "Atlas"]),
+            ("What is the largest continent by area?", "Asia", ["Africa", "Europe", "North America"]),
+            ("What is the longest river in the world?", "Nile River", ["Amazon River", "Mississippi River", "Yangtze River"]),
+            ("Which chemical element has the symbol O?", "Oxygen", ["Gold", "Iron", "Silver"]),
+            ("In which year did WWII end?", "1945", ["1939", "1918", "1950"]),
+        ],
+        4: [
+            ("What is the smallest country in the world?", "Vatican City", ["Monaco", "San Marino", "Andorra"]),
+            ("Which country produces the most coffee?", "Brazil", ["Colombia", "Ethiopia", "Vietnam"]),
+            ("How many hearts does an octopus have?", "3", ["1", "2", "4"]),
+            ("What is the most abundant gas in Earth's atmosphere?", "Nitrogen", ["Oxygen", "Carbon Dioxide", "Hydrogen"]),
+            ("Who invented the light bulb?", "Thomas Edison", ["Nikola Tesla", "Einstein", "Alexander Graham Bell"]),
+        ],
+    },
+    "fr": {
+        1: [
+            ("Quelle est la capitale de la France ?", "Paris", ["Londres", "Madrid", "Rome"]),
+            ("Combien de jours dans une année bissextile ?", "366", ["365", "360", "350"]),
+            ("Quel animal est le vaisseau du désert ?", "Chameau", ["Cheval", "Éléphant", "Lion"]),
+            ("Quelle est la capitale de l'Égypte ?", "Le Caire", ["Alexandrie", "Assouan", "Gizeh"]),
+            ("Combien de couleurs dans un arc-en-ciel ?", "7", ["5", "6", "8"]),
+        ],
+        2: [
+            ("Quelle est la planète rouge ?", "Mars", ["Jupiter", "Vénus", "Saturne"]),
+            ("Quel est l'animal terrestre le plus rapide ?", "Gépard", ["Lion", "Gazelle", "Cheval"]),
+            ("Quelle est la capitale du Japon ?", "Tokyo", ["Osaka", "Kyoto", "Séoul"]),
+            ("Combien de côtés a un triangle ?", "3", ["4", "5", "6"]),
+            ("Quel est le plus grand océan du monde ?", "Océan Pacifique", ["Océan Atlantique", "Océan Indien", "Océan Arctique"]),
+        ],
+        3: [
+            ("Quelle est la plus longue chaîne de montagnes ?", "Andes", ["Himalaya", "Alpes", "Atlas"]),
+            ("Quel est le plus grand continent par superficie ?", "Asie", ["Afrique", "Europe", "Amérique du Nord"]),
+            ("Quel est le plus long fleuve du monde ?", "Le Nil", ["L'Amazone", "Mississippi", "Yangtsé"]),
+            ("Quel élément chimique a pour symbole O ?", "Oxygène", ["Or", "Fer", "Argent"]),
+            ("En quelle année s'est terminée la Seconde Guerre mondiale ?", "1945", ["1939", "1918", "1950"]),
+        ],
+        4: [
+            ("Quel est le plus petit pays du monde ?", "Vatican", ["Monaco", "Saint-Marin", "Andorre"]),
+            ("Quel pays produit le plus de café ?", "Brésil", ["Colombie", "Éthiopie", "Viêt Nam"]),
+            ("Combien de cœurs possède une pieuvre ?", "3", ["1", "2", "4"]),
+            ("Quel est le gaz le plus abondant dans l'atmosphère ?", "Azote", ["Oxygène", "Dioxyde de carbone", "Hydrogène"]),
+            ("Qui a inventé l'ampoule électrique ?", "Thomas Edison", ["Nikola Tesla", "Einstein", "Alexander Graham Bell"]),
+        ],
+    },
+}
+
+
+def build_questions_for_lang(lang_code):
+    """توليد الأسئلة المترجمة للأعداد المطلوبة لكل مستوى"""
+    lang_questions = {}
+    base_dict = RAW_QUESTIONS_DB.get(lang_code, RAW_QUESTIONS_DB["ar"])
+    counts = {1: 100, 2: 150, 3: 200, 4: 250}
+    prefix = TRANSLATIONS[lang_code]["q_prefix"]
+
+    for lvl, target_count in counts.items():
+        base_pool = base_dict.get(lvl, base_dict[1])
+        q_list = []
+        for i in range(target_count):
+            base_q = base_pool[i % len(base_pool)]
+            q_text = f"{prefix}{i+1}: {base_q[0]}"
+            q_list.append((q_text, base_q[1], base_q[2]))
+        lang_questions[lvl] = q_list
+
+    return lang_questions
+
+
+# إعادة إنشاء بنك الأسئلة باللغات الثلاث
+QUESTIONS_DATA = {
+    "ar": build_questions_for_lang("ar"),
+    "en": build_questions_for_lang("en"),
+    "fr": build_questions_for_lang("fr"),
+}
+
+current_lang = "ar"
+current_level = 1
+question_index = 0
+score = 0
+coins = 200
+
+LEVEL_CONFIG = {
+    1: {"bg": "#2ecc71", "fg": "#ffffff"},
+    2: {"bg": "#f1c40f", "fg": "#2c3e50"},
+    3: {"bg": "#e74c3c", "fg": "#ffffff"},
+    4: {"bg": "#1e272e", "fg": "#ffdd59"},
+}
+
+# ==================== 3. الواجهة الرئيسية والتنقل ====================
+root = tk.Tk()
+root.geometry("650x620")
+root.title(TRANSLATIONS[current_lang]["title"])
+
+frame_game = tk.Frame(root)
+frame_settings = tk.Frame(root, bg="#ffffff")
+
+frame_game.pack(fill="both", expand=True)
+
+# ----------------- شاشة اللعبة -----------------
+frame_top = tk.Frame(frame_game, bg="#ffffff")
+frame_top.pack(fill="x", side="top", pady=5)
+
+btn_settings = tk.Button(
+    frame_top,
+    text=TRANSLATIONS[current_lang]["settings"],
+    bg="#34495e",
+    fg="white",
+    font=("Arial", 10, "bold"),
+    command=lambda: show_screen("settings"),
+)
+btn_settings.pack(side="right", padx=5)
+
+for i in range(1, 5):
+    tk.Button(
+        frame_top,
+        text=f"Lvl {i}",
+        bg=LEVEL_CONFIG[i]["bg"],
+        fg=LEVEL_CONFIG[i]["fg"],
+        font=("Arial", 10, "bold"),
+        command=lambda l=i: set_level(l),
+    ).pack(side="left", expand=True, fill="x", padx=1)
+
+lbl_level_header = tk.Label(frame_game, text="", font=("Arial", 16, "bold"))
+lbl_level_header.pack(pady=8)
+
+lbl_coins = tk.Label(frame_game, text="", font=("Arial", 13, "bold"))
+lbl_coins.pack(pady=2)
+
+lbl_score = tk.Label(frame_game, text="", font=("Arial", 11, "bold"))
+lbl_score.pack(pady=2)
+
+lbl_question = tk.Label(
+    frame_game, text="", font=("Arial", 14, "bold"), wraplength=580
+)
+lbl_question.pack(pady=10)
+
+frame_answers = tk.Frame(frame_game)
+frame_answers.pack(pady=10)
+
+btn_options = []
+for i in range(4):
+    b = tk.Button(
+        frame_answers,
+        text="",
+        font=("Arial", 11, "bold"),
+        width=22,
+        height=2,
+        bg="#ffffff",
+        fg="#2c3e50",
+        cursor="hand2",
+    )
+    b.grid(row=i // 2, column=i % 2, padx=10, pady=8)
+    btn_options.append(b)
+
+btn_helper = tk.Button(
+    frame_game,
+    text=TRANSLATIONS[current_lang]["helper_5050"],
+    font=("Arial", 11, "bold"),
+    bg="#8e44ad",
+    fg="white",
+    cursor="hand2",
+    command=lambda: use_5050_helper(),
+)
+btn_helper.pack(pady=10)
+
+lbl_result = tk.Label(frame_game, text="", font=("Arial", 13, "bold"))
+lbl_result.pack(side="bottom", pady=15)
+
+# ----------------- شاشة الإعدادات -----------------
+lbl_set_title = tk.Label(
+    frame_settings,
+    text=TRANSLATIONS[current_lang]["settings"],
+    font=("Arial", 18, "bold"),
+    bg="#ffffff",
+    fg="#2c3e50",
+)
+lbl_set_title.pack(pady=20)
+
+lbl_set_music = tk.Label(
+    frame_settings,
+    text=TRANSLATIONS[current_lang]["music"],
+    font=("Arial", 12, "bold"),
+    bg="#ffffff",
+    fg="#2c3e50",
+)
+lbl_set_music.pack(pady=5)
+
+
+def toggle_mute():
+    global is_muted
+    is_muted = not is_muted
+    t = TRANSLATIONS[current_lang]
+    if is_muted:
+        pygame.mixer.pause()
+        btn_mute.config(text=t["unmute"])
+    else:
+        pygame.mixer.unpause()
+        btn_mute.config(text=t["mute"])
+
+
+btn_mute = tk.Button(
+    frame_settings,
+    text=TRANSLATIONS[current_lang]["mute"],
+    font=("Arial", 11, "bold"),
+    bg="#e74c3c",
+    fg="white",
+    width=15,
+    command=toggle_mute,
+)
+btn_mute.pack(pady=5)
+
+lbl_set_vol = tk.Label(
+    frame_settings,
+    text=TRANSLATIONS[current_lang]["volume"],
+    font=("Arial", 11),
+    bg="#ffffff",
+    fg="#2c3e50",
+)
+lbl_set_vol.pack(pady=5)
+
+
+def set_volume(val):
+    global sound_volume
+    sound_volume = float(val) / 100
+    sound_correct.set_volume(sound_volume)
+    sound_wrong.set_volume(sound_volume)
+    channel_bg.set_volume(sound_volume * 0.3)
+
+
+slider_vol = tk.Scale(
+    frame_settings,
+    from_=0,
+    to=100,
+    orient="horizontal",
+    bg="#ffffff",
+    highlightthickness=0,
+    command=set_volume,
+)
+slider_vol.set(int(sound_volume * 100))
+slider_vol.pack(pady=5)
+
+lbl_set_lang = tk.Label(
+    frame_settings,
+    text=TRANSLATIONS[current_lang]["lang"],
+    font=("Arial", 12, "bold"),
+    bg="#ffffff",
+    fg="#2c3e50",
+)
+lbl_set_lang.pack(pady=15)
+
+
+def change_lang(lang_code):
+    global current_lang
+    current_lang = lang_code
+    t = TRANSLATIONS[lang_code]
+
+    root.title(t["title"])
+    btn_settings.config(text=t["settings"])
+    btn_helper.config(text=t["helper_5050"])
+
+    lbl_set_title.config(text=t["settings"])
+    lbl_set_music.config(text=t["music"])
+    lbl_set_vol.config(text=t["volume"])
+    lbl_set_lang.config(text=t["lang"])
+    btn_back.config(text=t["back"])
+    btn_mute.config(text=t["mute"] if not is_muted else t["unmute"])
+
+    # تحديث الواجهة والأسئلة باللغة الجديدة فوراً
+    set_level(current_level)
+
+
+frame_langs = tk.Frame(frame_settings, bg="#ffffff")
+frame_langs.pack(pady=5)
+
+tk.Button(
+    frame_langs,
+    text="العربية 🇸🇦",
+    width=10,
+    font=("Arial", 10, "bold"),
+    command=lambda: change_lang("ar"),
+).pack(side="left", padx=5)
+tk.Button(
+    frame_langs,
+    text="English 🇬🇧",
+    width=10,
+    font=("Arial", 10, "bold"),
+    command=lambda: change_lang("en"),
+).pack(side="left", padx=5)
+tk.Button(
+    frame_langs,
+    text="Français 🇫🇷",
+    width=10,
+    font=("Arial", 10, "bold"),
+    command=lambda: change_lang("fr"),
+).pack(side="left", padx=5)
+
+btn_back = tk.Button(
+    frame_settings,
+    text=TRANSLATIONS[current_lang]["back"],
+    font=("Arial", 12, "bold"),
+    bg="#27ae60",
+    fg="white",
+    width=18,
+    command=lambda: show_screen("game"),
+)
+btn_back.pack(pady=30)
+
+
+# ==================== 4. الوظائف البرمجية ====================
+def show_screen(screen_name):
+    if screen_name == "settings":
+        frame_game.pack_forget()
+        frame_settings.pack(fill="both", expand=True)
+        root.configure(bg="#ffffff")
+    else:
+        frame_settings.pack_forget()
+        frame_game.pack(fill="both", expand=True)
+        cfg = LEVEL_CONFIG[current_level]
+        root.configure(bg=cfg["bg"])
+
+
+def set_level(lvl):
+    global current_level, question_index
+    current_level = lvl
+    question_index = 0
+
+    cfg = LEVEL_CONFIG[lvl]
+    bg_color = cfg["bg"]
+    fg_color = cfg["fg"]
+
+    root.configure(bg=bg_color)
+    frame_game.configure(bg=bg_color)
+    frame_answers.configure(bg=bg_color)
+
+    t = TRANSLATIONS[current_lang]
+    lbl_level_header.configure(text=t[f"lvl_{lvl}"], bg=bg_color, fg=fg_color)
+    lbl_question.configure(bg=bg_color, fg=fg_color)
+    lbl_score.configure(bg=bg_color, fg=fg_color)
+    lbl_coins.configure(bg=bg_color, fg=fg_color)
+    lbl_result.configure(text="", bg=bg_color)
+
+    load_question()
+
+
+def load_question():
+    global question_index, current_level
+    q_list = QUESTIONS_DATA[current_lang].get(current_level, [])
+    t = TRANSLATIONS[current_lang]
+
+    lbl_coins.config(text=t["coins"].format(coins))
+    btn_helper.config(state="normal")
+
+    if question_index >= len(q_list):
+        if current_level < 4:
+            set_level(current_level + 1)
+        else:
+            lbl_question.config(text="")
+            lbl_result.config(text=t["win"].format(score), fg="#ffffff")
+            for b in btn_options:
+                b.config(state="disabled", text="")
+        return
+
+    q_data = q_list[question_index]
+    lbl_question.config(text=q_data[0])
+    lbl_score.config(
+        text=t["progress"].format(question_index + 1, len(q_list), score)
+    )
+
+    options = [q_data[1]] + list(q_data[2])
+    random.shuffle(options)
+
+    for i in range(4):
+        if i < len(options):
+            btn_options[i].config(
+                text=options[i],
+                state="normal",
+                bg="#ffffff",
+                fg="#2c3e50",
+                command=lambda selected=options[i], correct=q_data[
+                    1
+                ]: check_answer(selected, correct),
+            )
+        else:
+            btn_options[i].config(text="", state="disabled")
+
+
+def check_answer(selected, correct):
+    global score, coins, question_index
+    t = TRANSLATIONS[current_lang]
+
+    if selected == correct:
+        score += 1
+        coins += 10
+        play_feedback(True)
+        lbl_result.config(
+            text=t["correct"], fg="#000000" if current_level == 2 else "#ffffff"
+        )
+    else:
+        play_feedback(False)
+        lbl_result.config(text=t["wrong"].format(correct), fg="#721c24")
+
+    question_index += 1
+    load_question()
+
+
+def use_5050_helper():
+    global coins
+    t = TRANSLATIONS[current_lang]
+
+    if coins < 150:
+        lbl_result.config(text=t["no_coins"], fg="#ffdd59")
+        return
+
+    coins -= 150
+    lbl_coins.config(text=t["coins"].format(coins))
+    btn_helper.config(state="disabled")
+
+    q_data = QUESTIONS_DATA[current_lang][current_level][question_index]
+    correct_ans = q_data[1]
+
+    wrong_buttons = [
+        btn
+        for btn in btn_options
+        if btn.cget("text") != correct_ans and btn.cget("state") != "disabled"
+    ]
+
+    to_remove = random.sample(wrong_buttons, min(2, len(wrong_buttons)))
+    for btn in to_remove:
+        btn.config(text="", state="disabled", bg="#dcdde1")
+
+
+set_level(1)
+root.mainloop()
